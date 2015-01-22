@@ -1,89 +1,72 @@
-import com.thinkaurelius.titan.core.TitanFactory;
-import com.thinkaurelius.titan.core.TitanGraph;
+import com.thinkaurelius.titan.core.*;
 import com.thinkaurelius.titan.core.schema.TitanManagement;
 import com.thinkaurelius.titan.core.util.TitanCleanup;
-import com.tinkerpop.gremlin.process.graph.GraphTraversal;
-import com.tinkerpop.gremlin.structure.Vertex;
-
-import java.util.Map;
+import com.tinkerpop.blueprints.Vertex;
 
 /**
  * @author Daniel Kuppitz (daniel at thinkaurelius.com)
  */
 public class Sandbox {
 
-    public static void main(final String[] args) {
+    public static void main(final String[] args) throws InterruptedException {
 
         TitanGraph g = getGraph();
-
-        createSchema(g);
-        generateSampleData(g);
-        printSchemaInformation(g);
-        printData(g);
-
-        g.close();
+        g.shutdown();
         TitanCleanup.clear(g);
-
         g = getGraph();
-        printSchemaInformation(g);
-        printData(g);
+        createSchema(g);
 
-        g.close();
+        final TitanVertex daniel = g.addVertexWithLabel("person");
+        final TitanVertex simon = g.addVertexWithLabel("person");
+
+        daniel.setProperty("name", "simon");
+        simon.setProperty("name", "simon");
+        daniel.addEdge("knows", simon).setProperty("value", 0L);
+
+        g.commit();
+
+        final TitanEdge edge = (TitanEdge) g.getEdges().iterator().next();
+        edge.setProperty("value", 1L);
+
+        g.commit();
     }
 
     private static TitanGraph getGraph() {
         return TitanFactory.build()
-                .set("storage.backend", "berkeleyje")
-                .set("storage.directory", "/tmp/titan-sandbox-db")
+                .set("storage.backend", "cassandrathrift")
+                .set("storage.hostname", "127.0.0.1")
+                .set("index.search.backend", "elasticsearch")
+                .set("index.search.directory", "127.0.0.1")
+                .set("index.search.elasticsearch.client-only", true)
+                .set("index.search.elasticsearch.local-mode", false)
+                .set("storage.meta.edgestore.timestamps", true)
                 .open();
     }
 
     private static void createSchema(final TitanGraph graph) {
 
-        final TitanManagement m = graph.openManagement();
+        final TitanManagement m = graph.getManagementSystem();
+        final VertexLabel person;
 
         if (!m.containsVertexLabel("person")) {
-            m.makeVertexLabel("person").make();
+            person = m.makeVertexLabel("person").make();
+        } else {
+            person = m.getVertexLabel("person");
         }
 
         if (!m.containsPropertyKey("name")) {
-            m.makePropertyKey("name").dataType(String.class).make();
+            final PropertyKey name = m.makePropertyKey("name").dataType(String.class).make();
+            m.buildIndex("byName", Vertex.class).addKey(name).indexOnly(person).buildMixedIndex("search");
         }
 
-        if (!m.containsPropertyKey("keywords")) {
-            m.makePropertyKey("keywords").dataType(String.class).make();
+        if (!m.containsPropertyKey("val")) {
+            m.makePropertyKey("val").dataType(Long.class).make();
+        }
+
+        if (!m.containsEdgeLabel("knows")) {
+            m.makeEdgeLabel("knows").make();
         }
 
         m.commit();
-    }
-
-    private static void printSchemaInformation(final TitanGraph graph) {
-
-        final TitanManagement m = graph.openManagement();
-
-        System.out.println("\n== SCHEMA INFORMATION ==\n");
-        System.out.println("Vertex label 'person':   " + (m.containsVertexLabel("person") ? "available" : "unavailable"));
-        System.out.println("Property key 'name':     " + (m.containsPropertyKey("name") ? "available" : "unavailable"));
-        System.out.println("Property key 'keywords': " + (m.containsPropertyKey("keywords") ? "available" : "unavailable"));
-
-        m.commit();
-    }
-
-    private static void generateSampleData(final TitanGraph graph) {
-        graph.addVertex("name", "Mark", "keywords", "shocked");
-        graph.tx().commit();
-    }
-
-    private static void printData(final TitanGraph graph) {
-
-        final GraphTraversal<Vertex, Map<String, Object>> traversal = graph.V().valueMap();
-
-        System.out.println("\n== DATA ==\n");
-
-        if (traversal.hasNext()) {
-            graph.V().valueMap().forEachRemaining(System.out::println);
-        } else {
-            System.out.println("No data available");
-        }
     }
 }
