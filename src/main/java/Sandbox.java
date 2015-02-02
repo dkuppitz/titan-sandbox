@@ -1,10 +1,14 @@
 import com.thinkaurelius.titan.core.TitanFactory;
 import com.thinkaurelius.titan.core.TitanGraph;
-import com.thinkaurelius.titan.core.schema.TitanManagement;
+import com.thinkaurelius.titan.core.TitanVertex;
 import com.thinkaurelius.titan.core.util.TitanCleanup;
-import com.tinkerpop.gremlin.process.graph.GraphTraversal;
+import com.thinkaurelius.titan.example.GraphOfTheGodsFactory;
+import com.tinkerpop.gremlin.structure.Direction;
 import com.tinkerpop.gremlin.structure.Vertex;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -15,75 +19,102 @@ public class Sandbox {
     public static void main(final String[] args) {
 
         TitanGraph g = getGraph();
-
-        createSchema(g);
-        generateSampleData(g);
-        printSchemaInformation(g);
-        printData(g);
-
         g.close();
         TitanCleanup.clear(g);
 
         g = getGraph();
-        printSchemaInformation(g);
-        printData(g);
+        generateSampleData(g);
+        countGremlin(g);
+        countMultiQueryWrong(g);
+        countMultiQuery(g);
 
         g.close();
+        TitanCleanup.clear(g);
     }
 
     private static TitanGraph getGraph() {
         return TitanFactory.build()
-                .set("storage.backend", "berkeleyje")
-                .set("storage.directory", "/tmp/titan-sandbox-db")
+                .set("storage.backend", "cassandrathrift")
+                .set("storage.hostname", "localhost")
+                .set("index.search.backend", "elasticsearch")
+                .set("index.search.hostname", "localhost")
+                .set("index.search.elasticsearch.client-only", true)
                 .open();
     }
 
-    private static void createSchema(final TitanGraph graph) {
-
-        final TitanManagement m = graph.openManagement();
-
-        if (!m.containsVertexLabel("person")) {
-            m.makeVertexLabel("person").make();
-        }
-
-        if (!m.containsPropertyKey("name")) {
-            m.makePropertyKey("name").dataType(String.class).make();
-        }
-
-        if (!m.containsPropertyKey("keywords")) {
-            m.makePropertyKey("keywords").dataType(String.class).make();
-        }
-
-        m.commit();
-    }
-
-    private static void printSchemaInformation(final TitanGraph graph) {
-
-        final TitanManagement m = graph.openManagement();
-
-        System.out.println("\n== SCHEMA INFORMATION ==\n");
-        System.out.println("Vertex label 'person':   " + (m.containsVertexLabel("person") ? "available" : "unavailable"));
-        System.out.println("Property key 'name':     " + (m.containsPropertyKey("name") ? "available" : "unavailable"));
-        System.out.println("Property key 'keywords': " + (m.containsPropertyKey("keywords") ? "available" : "unavailable"));
-
-        m.commit();
-    }
-
     private static void generateSampleData(final TitanGraph graph) {
-        graph.addVertex("name", "Mark", "keywords", "shocked");
-        graph.tx().commit();
+        GraphOfTheGodsFactory.load(graph);
     }
 
-    private static void printData(final TitanGraph graph) {
+    private static void countGremlin(final TitanGraph graph) {
 
-        final GraphTraversal<Vertex, Map<String, Object>> traversal = graph.V().valueMap();
+        System.out.println("\n== Gremlin ==\n");
 
-        System.out.println("\n== DATA ==\n");
+        System.out.print("g.V().out('brother').out('lives').count() ==> ");
+        graph.V().out("brother").out("lives").count().forEachRemaining(System.out::println);
 
-        if (traversal.hasNext()) {
-            graph.V().valueMap().forEachRemaining(System.out::println);
-        } else {
-            System.out.println("No data available");
-        }
+        System.out.print("g.V().out('brother').out('lives').in('lives').count() ==> ");
+        graph.V().out("brother").out("lives").in("lives").count().forEachRemaining(System.out::println);
+    }
+
+
+    private static void countMultiQueryWrong(final TitanGraph graph) {
+
+        System.out.println("\n== MultiQuery (the wrong way) ==\n");
+
+        final List<Vertex> gods = (List<Vertex>) (Object) graph.V().out("brother").toList();
+        final List<TitanVertex> level1 = new ArrayList<>();
+        final List<TitanVertex> level2 = new ArrayList<>();
+
+        // level 1
+        graph.multiQuery().addAllVertices(gods).direction(Direction.OUT).labels("lives").vertices().forEach((outV, inVs) -> {
+            for (final TitanVertex v : (Iterable<TitanVertex>) inVs) {
+                level1.add(v);
+            }
+        });
+
+        // level 2
+        graph.multiQuery().addAllVertices(level1).direction(Direction.IN).labels("lives").vertices().forEach((inV, outVs) -> {
+            for (final TitanVertex v : (Iterable<TitanVertex>) outVs) {
+                level2.add(v);
+            }
+        });
+
+        System.out.print("g.V().out('brother').out('lives').count() ==> ");
+        System.out.println(level1.size());
+
+        System.out.print("g.V().out('brother').out('lives').in('lives').count() ==> ");
+        System.out.println(level2.size());
+    }
+
+    private static void countMultiQuery(final TitanGraph graph) {
+
+        System.out.println("\n== MultiQuery (the right way) ==\n");
+
+        final Map<Vertex, Long> gods = (Map<Vertex, Long>) graph.V().out("brother").groupCount().cap().next();
+        final Map<TitanVertex, Long> level1 = new HashMap<>();
+        final Map<TitanVertex, Long> level2 = new HashMap<>();
+
+        // level 1
+        graph.multiQuery().addAllVertices(gods.keySet()).direction(Direction.OUT).labels("lives").vertices().forEach((outV, inVs) -> {
+            final Long x = gods.get(outV);
+            for (final TitanVertex v : (Iterable<TitanVertex>) inVs) {
+                level1.compute(v, (tv, c) -> (c != null ? c : 0L) + x);
+            }
+        });
+
+        // level 2
+        graph.multiQuery().addAllVertices(level1.keySet()).direction(Direction.IN).labels("lives").vertices().forEach((inV, outVs) -> {
+            final Long x = level1.get(inV);
+            for (final TitanVertex v : (Iterable<TitanVertex>) outVs) {
+                level2.compute(v, (tv, c) -> (c != null ? c : 0L) + x);
+            }
+        });
+
+        System.out.print("g.V().out('brother').out('lives').count() ==> ");
+        System.out.println(level1.values().stream().mapToLong(x -> x).sum());
+
+        System.out.print("g.V().out('brother').out('lives').in('lives').count() ==> ");
+        System.out.println(level2.values().stream().mapToLong(x -> x).sum());
     }
 }

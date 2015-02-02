@@ -11,6 +11,11 @@
     <dependencies>
         <dependency>
             <groupId>com.thinkaurelius.titan</groupId>
+            <artifactId>titan-cassandra</artifactId>
+            <version>0.9.0-M1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.thinkaurelius.titan</groupId>
             <artifactId>titan-all</artifactId>
             <version>0.9.0-M1</version>
         </dependency>
