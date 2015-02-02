@@ -1,11 +1,10 @@
 import com.thinkaurelius.titan.core.TitanFactory;
 import com.thinkaurelius.titan.core.TitanGraph;
+import com.thinkaurelius.titan.core.TitanVertex;
 import com.thinkaurelius.titan.core.schema.TitanManagement;
 import com.thinkaurelius.titan.core.util.TitanCleanup;
-import com.tinkerpop.gremlin.process.graph.GraphTraversal;
-import com.tinkerpop.gremlin.structure.Vertex;
 
-import java.util.Map;
+import java.util.Iterator;
 
 /**
  * @author Daniel Kuppitz (daniel at thinkaurelius.com)
@@ -16,19 +15,17 @@ public class Sandbox {
 
         TitanGraph g = getGraph();
 
+        g.shutdown();
+        TitanCleanup.clear(g);
+        g = getGraph();
+
         createSchema(g);
         generateSampleData(g);
         printSchemaInformation(g);
         printData(g);
 
-        g.close();
+        g.shutdown();
         TitanCleanup.clear(g);
-
-        g = getGraph();
-        printSchemaInformation(g);
-        printData(g);
-
-        g.close();
     }
 
     private static TitanGraph getGraph() {
@@ -40,18 +37,10 @@ public class Sandbox {
 
     private static void createSchema(final TitanGraph graph) {
 
-        final TitanManagement m = graph.openManagement();
+        final TitanManagement m = graph.getManagementSystem();
 
-        if (!m.containsVertexLabel("person")) {
-            m.makeVertexLabel("person").make();
-        }
-
-        if (!m.containsPropertyKey("name")) {
-            m.makePropertyKey("name").dataType(String.class).make();
-        }
-
-        if (!m.containsPropertyKey("keywords")) {
-            m.makePropertyKey("keywords").dataType(String.class).make();
+        if (!m.containsPropertyKey("longValue")) {
+            m.makePropertyKey("longValue").dataType(Long.class).make();
         }
 
         m.commit();
@@ -59,29 +48,29 @@ public class Sandbox {
 
     private static void printSchemaInformation(final TitanGraph graph) {
 
-        final TitanManagement m = graph.openManagement();
+        final TitanManagement m = graph.getManagementSystem();
 
         System.out.println("\n== SCHEMA INFORMATION ==\n");
-        System.out.println("Vertex label 'person':   " + (m.containsVertexLabel("person") ? "available" : "unavailable"));
-        System.out.println("Property key 'name':     " + (m.containsPropertyKey("name") ? "available" : "unavailable"));
-        System.out.println("Property key 'keywords': " + (m.containsPropertyKey("keywords") ? "available" : "unavailable"));
+        System.out.println("Data type for 'longValue': " + (m.containsPropertyKey("longValue")
+                ? (m.getPropertyKey("longValue").getDataType())
+                : "unavailable"));
 
         m.commit();
     }
 
     private static void generateSampleData(final TitanGraph graph) {
-        graph.addVertex("name", "Mark", "keywords", "shocked");
-        graph.tx().commit();
+        graph.addVertex().setProperty("longValue", 1L);
+        graph.commit();
     }
 
     private static void printData(final TitanGraph graph) {
 
-        final GraphTraversal<Vertex, Map<String, Object>> traversal = graph.V().valueMap();
+        final Iterator vertices = graph.getVertices().iterator();
 
         System.out.println("\n== DATA ==\n");
 
-        if (traversal.hasNext()) {
-            graph.V().valueMap().forEachRemaining(System.out::println);
+        if (vertices.hasNext()) {
+            vertices.forEachRemaining(v -> System.out.println(((TitanVertex) v).<Long>getProperty("longValue")));
         } else {
             System.out.println("No data available");
         }
