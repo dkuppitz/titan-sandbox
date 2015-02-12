@@ -1,6 +1,7 @@
 import com.thinkaurelius.titan.core.*;
 import com.thinkaurelius.titan.core.schema.TitanManagement;
 import com.thinkaurelius.titan.core.util.TitanCleanup;
+import com.tinkerpop.blueprints.Direction;
 import com.tinkerpop.blueprints.Edge;
 
 /**
@@ -13,17 +14,11 @@ public class Sandbox {
         TitanGraph g = getGraph();
 
         createSchema(g);
-        generateSampleData(g);
+        TitanVertex root = generateSampleData(g);
 
-        g.query().has("quality").orderBy("quality", Order.DESC).edges()
-                .forEach(e -> System.out.println(((Edge) e).getProperty("quality") + " :: " + e.toString()));
+        root.query().labels("link").direction(Direction.OUT).orderBy("quality", Order.DESC).limit(2).vertices()
+                .forEach(v -> System.out.println(v.<String>getProperty("name")));
         g.rollback();
-
-        // use an explicitly created transaction
-        TitanTransaction tx = g.newTransaction();
-        tx.query().has("quality").orderBy("quality", Order.DESC).edges()
-                .forEach(e -> System.out.println(((Edge) e).getProperty("quality") + " :: " + e.toString()));
-        tx.rollback();
 
         g.shutdown();
         TitanCleanup.clear(g);
@@ -39,20 +34,26 @@ public class Sandbox {
     private static void createSchema(final TitanGraph graph) {
 
         final TitanManagement m = graph.getManagementSystem();
+        final EdgeLabel link = m.makeEdgeLabel("link").make();
+        final PropertyKey quality = m.makePropertyKey("quality").dataType(Integer.class).cardinality(Cardinality.SINGLE).make();
 
-        if (!m.containsPropertyKey("quality")) {
-            m.makePropertyKey("quality").dataType(Integer.class).cardinality(Cardinality.SINGLE).make();
-        }
-
+        m.makePropertyKey("name").dataType(String.class).make();
+        m.buildEdgeIndex(link, "linkByQuality", Direction.OUT, Order.DESC, quality);
         m.commit();
     }
 
-    private static void generateSampleData(final TitanGraph graph) {
+    private static TitanVertex generateSampleData(final TitanGraph graph) {
         final TitanVertex root = graph.addVertex();
-        root.addEdge("link", graph.addVertex()).setProperty("quality", 42);
-        root.addEdge("link", graph.addVertex()).setProperty("quality", 0);
-        root.addEdge("link", graph.addVertex()).setProperty("quality", 8);
-        root.addEdge("link", graph.addVertex()).setProperty("quality", 15);
+        final TitanVertex v1, v2, v3, v4;
+        root.addEdge("link", v1 = graph.addVertex()).setProperty("quality", 42);
+        root.addEdge("link", v2 = graph.addVertex()).setProperty("quality", 0);
+        root.addEdge("link", v3 = graph.addVertex()).setProperty("quality", 8);
+        root.addEdge("link", v4 = graph.addVertex()).setProperty("quality", 15);
+        v1.setProperty("name", "inV for quality 42");
+        v2.setProperty("name", "inV for quality 0");
+        v3.setProperty("name", "inV for quality 8");
+        v4.setProperty("name", "inV for quality 15");
         graph.commit();
+        return root;
     }
 }
