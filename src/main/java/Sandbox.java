@@ -1,8 +1,11 @@
-import com.thinkaurelius.titan.core.*;
+import com.thinkaurelius.titan.core.PropertyKey;
+import com.thinkaurelius.titan.core.TitanFactory;
+import com.thinkaurelius.titan.core.TitanGraph;
 import com.thinkaurelius.titan.core.schema.TitanManagement;
 import com.thinkaurelius.titan.core.util.TitanCleanup;
-import com.tinkerpop.blueprints.Direction;
-import com.tinkerpop.blueprints.Edge;
+import com.tinkerpop.blueprints.Vertex;
+
+import java.util.UUID;
 
 /**
  * @author Daniel Kuppitz (http://gremlin.guru)
@@ -14,10 +17,28 @@ public class Sandbox {
         TitanGraph g = getGraph();
 
         createSchema(g);
-        TitanVertex root = generateSampleData(g);
 
-        root.query().labels("link").direction(Direction.OUT).orderBy("quality", Order.DESC).limit(2).vertices()
-                .forEach(v -> System.out.println(v.<String>getProperty("name")));
+        final long t1 = System.currentTimeMillis(), t2;
+        final String id = UUID.randomUUID().toString();
+        final Vertex customer = g.addVertex();
+        customer.setProperty("something", id);
+        g.commit();
+
+        t2 = System.currentTimeMillis();
+
+        long t3, t4;
+        final Iterable<Vertex> iter = g.query().has("something", id).vertices();
+        for (final Vertex v : iter) {
+            t3 = System.currentTimeMillis();
+            if (v.getProperty("something").equals(id)) {
+                t4 = System.currentTimeMillis();
+                System.err.println("Insert took [ms]: " + (t2 - t1));
+                System.err.println("Vertex retrieval [ms]: " + (t3 - t2));
+                System.err.println("Property retrieval [ms]: " + (t4 - t3));
+                break;
+            }
+        }
+
         g.rollback();
 
         g.shutdown();
@@ -26,34 +47,16 @@ public class Sandbox {
 
     private static TitanGraph getGraph() {
         return TitanFactory.build()
-                .set("storage.backend", "berkeleyje")
-                .set("storage.directory", "/tmp/titan-sandbox-db")
+                .set("storage.backend", "cassandra")
+                        //.set("storage.directory", "/tmp/titan-sandbox-db")
+                .set("storage.hostname", "localhost")
                 .open();
     }
 
     private static void createSchema(final TitanGraph graph) {
-
         final TitanManagement m = graph.getManagementSystem();
-        final EdgeLabel link = m.makeEdgeLabel("link").make();
-        final PropertyKey quality = m.makePropertyKey("quality").dataType(Integer.class).cardinality(Cardinality.SINGLE).make();
-
-        m.makePropertyKey("name").dataType(String.class).make();
-        m.buildEdgeIndex(link, "linkByQuality", Direction.OUT, Order.DESC, quality);
+        final PropertyKey something = m.makePropertyKey("something").dataType(String.class).make();
+        m.buildIndex("bySomething", Vertex.class).addKey(something).buildCompositeIndex();
         m.commit();
-    }
-
-    private static TitanVertex generateSampleData(final TitanGraph graph) {
-        final TitanVertex root = graph.addVertex();
-        final TitanVertex v1, v2, v3, v4;
-        root.addEdge("link", v1 = graph.addVertex()).setProperty("quality", 42);
-        root.addEdge("link", v2 = graph.addVertex()).setProperty("quality", 0);
-        root.addEdge("link", v3 = graph.addVertex()).setProperty("quality", 8);
-        root.addEdge("link", v4 = graph.addVertex()).setProperty("quality", 15);
-        v1.setProperty("name", "inV for quality 42");
-        v2.setProperty("name", "inV for quality 0");
-        v3.setProperty("name", "inV for quality 8");
-        v4.setProperty("name", "inV for quality 15");
-        graph.commit();
-        return root;
     }
 }
