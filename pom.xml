@@ -10,14 +10,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.tinkerpop.blueprints</groupId>
-            <artifactId>blueprints</artifactId>
-            <version>2.5.0</version>
-        </dependency>
-        <dependency>
             <groupId>com.thinkaurelius.titan</groupId>
             <artifactId>titan-all</artifactId>
-            <version>0.5.3</version>
+            <version>0.5.4</version>
         </dependency>
     </dependencies>
 
